@@ -81,6 +81,9 @@ ssize_t guest_sendto(int syscall_number, int socket, u32 guest_buffer,
 LC32_DYNARMIC_HIDDEN ssize_t guest_sendmsg(
     int syscall_number, int socket,
     u32 guest_message_address, int flags);
+LC32_DYNARMIC_HIDDEN ssize_t guest_recvmsg(
+    int syscall_number, int socket,
+    u32 guest_message_address, int flags);
 int guest_select(int syscall_number, int descriptor_count,
                  u32 guest_read_set, u32 guest_write_set,
                  u32 guest_exception_set, u32 guest_timeout);

@@ -1677,6 +1677,13 @@ BE CAREFUL WHEN MOVING SYSCALL. Checklist:
                     cpu->Regs()[1],
                     static_cast<int>(cpu->Regs()[2])));
                 break;
+            case SYS_recvmsg: // 27
+            case SYS_recvmsg_nocancel: // 401
+                cpu->Regs()[0] = static_cast<u32>(guest_recvmsg(
+                    NR, static_cast<int>(cpu->Regs()[0]),
+                    cpu->Regs()[1],
+                    static_cast<int>(cpu->Regs()[2])));
+                break;
             case SYS_mkdir: // 136
                 cpu->Regs()[0] = guest_mkdir(
                     cpu->Regs()[0], cpu->Regs()[1]);

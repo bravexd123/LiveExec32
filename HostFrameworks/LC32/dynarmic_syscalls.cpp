@@ -3839,6 +3839,171 @@ ssize_t guest_sendmsg(int NR, int socket,
     return result;
 }
 
+ssize_t guest_recvmsg(int NR, int socket,
+        u32 guest_message_address, int flags) {
+    GuestMsghdr32 guest_message = {};
+    if (guest_message_address == 0 ||
+            !read_guest_memory_with_permissions(
+                guest_message_address, &guest_message,
+                sizeof(guest_message), PROT_READ)) {
+        return static_cast<ssize_t>(
+            return_with_carry_direct(EFAULT, true));
+    }
+
+    constexpr int32_t maximum_iov_count = 1024;
+    if (guest_message.iovCount < 0 ||
+            guest_message.iovCount > maximum_iov_count) {
+        return static_cast<ssize_t>(
+            return_with_carry_direct(EMSGSIZE, true));
+    }
+
+    std::vector<GuestIovec32> guest_iov;
+    std::vector<iovec> host_iov;
+    std::vector<std::vector<char>> host_payloads;
+    try {
+        guest_iov.resize(static_cast<size_t>(guest_message.iovCount));
+        host_iov.resize(static_cast<size_t>(guest_message.iovCount));
+        host_payloads.resize(
+            static_cast<size_t>(guest_message.iovCount));
+    } catch (const std::exception &) {
+        return static_cast<ssize_t>(
+            return_with_carry_direct(ENOMEM, true));
+    }
+    if (!guest_iov.empty() &&
+            (guest_message.iov == 0 ||
+             !read_guest_memory_with_permissions(
+                 guest_message.iov, guest_iov.data(),
+                 guest_iov.size() * sizeof(GuestIovec32),
+                 PROT_READ))) {
+        return static_cast<ssize_t>(
+            return_with_carry_direct(EFAULT, true));
+    }
+
+    u64 total_payload_length = 0;
+    for (size_t index = 0; index < guest_iov.size(); ++index) {
+        const GuestIovec32 &guest = guest_iov[index];
+        total_payload_length += guest.length;
+        if (total_payload_length > static_cast<u64>(INT32_MAX)) {
+            return static_cast<ssize_t>(
+                return_with_carry_direct(EINVAL, true));
+        }
+        try {
+            host_payloads[index].resize(guest.length);
+        } catch (const std::exception &) {
+            return static_cast<ssize_t>(
+                return_with_carry_direct(ENOMEM, true));
+        }
+        host_iov[index].iov_base = guest.length != 0
+            ? host_payloads[index].data() : nullptr;
+        host_iov[index].iov_len = guest.length;
+    }
+
+    std::array<char, SOCK_MAXADDRLEN> host_name = {};
+    const socklen_t guest_name_capacity =
+        guest_message.name != 0 ? guest_message.nameLength : 0;
+
+    constexpr u32 maximum_control_length = 1U << 20;
+    if (guest_message.control != 0 &&
+            guest_message.controlLength > maximum_control_length) {
+        return static_cast<ssize_t>(
+            return_with_carry_direct(EMSGSIZE, true));
+    }
+    std::vector<char> host_control;
+    try {
+        host_control.resize(guest_message.control != 0
+            ? guest_message.controlLength : 0);
+    } catch (const std::exception &) {
+        return static_cast<ssize_t>(
+            return_with_carry_direct(ENOMEM, true));
+    }
+
+    msghdr host_message = {};
+    host_message.msg_name = guest_message.name != 0
+        ? host_name.data() : nullptr;
+    host_message.msg_namelen = guest_message.name != 0
+        ? static_cast<socklen_t>(host_name.size()) : 0;
+    host_message.msg_iov = !host_iov.empty()
+        ? host_iov.data() : nullptr;
+    host_message.msg_iovlen = guest_message.iovCount;
+    host_message.msg_control = !host_control.empty()
+        ? host_control.data() : nullptr;
+    host_message.msg_controllen =
+        static_cast<socklen_t>(host_control.size());
+    host_message.msg_flags = 0;
+
+    const bool workqueue_may_block =
+        NativeGuestWorkqueueIsCurrent();
+    if (workqueue_may_block) {
+        NativeGuestWorkqueueHostBlockEnter();
+    }
+    const ssize_t result = debugger_aware_host_wait(
+        [&] {
+            return static_cast<ssize_t>(syscallRetCarry(
+                NativeGuestThreadsEnabled()
+                    ? SYS_recvmsg : NR,
+                socket, &host_message, flags,
+                0, 0, 0, 0));
+        },
+        static_cast<ssize_t>(
+            return_with_carry_direct(EINTR, true)));
+    if (workqueue_may_block) {
+        NativeGuestWorkqueueHostBlockExit();
+    }
+    if (threadHandle.cpsr->hasCarry() || result < 0) {
+        return result;
+    }
+
+    size_t remaining = static_cast<size_t>(result);
+    for (size_t index = 0; index < guest_iov.size() && remaining != 0;
+            ++index) {
+        const size_t chunk = std::min(
+            remaining, static_cast<size_t>(guest_iov[index].length));
+        if (chunk != 0 &&
+                (guest_iov[index].base == 0 ||
+                 Dynarmic_mem_1write(guest_iov[index].base, chunk,
+                     host_payloads[index].data()) != 0)) {
+            return static_cast<ssize_t>(
+                return_with_carry_direct(EFAULT, true));
+        }
+        remaining -= chunk;
+    }
+
+    GuestMsghdr32 updated = guest_message;
+    if (guest_message.name != 0) {
+        const socklen_t copied = std::min(
+            host_message.msg_namelen, guest_name_capacity);
+        if (copied != 0 && Dynarmic_mem_1write(
+                guest_message.name, copied, host_name.data()) != 0) {
+            return static_cast<ssize_t>(
+                return_with_carry_direct(EFAULT, true));
+        }
+        updated.nameLength = host_message.msg_namelen;
+    } else {
+        updated.nameLength = 0;
+    }
+    if (!host_control.empty()) {
+        const socklen_t copied = std::min(
+            host_message.msg_controllen,
+            static_cast<socklen_t>(host_control.size()));
+        if (copied != 0 && Dynarmic_mem_1write(
+                guest_message.control, copied,
+                host_control.data()) != 0) {
+            return static_cast<ssize_t>(
+                return_with_carry_direct(EFAULT, true));
+        }
+        updated.controlLength = copied;
+    } else {
+        updated.controlLength = 0;
+    }
+    updated.flags = host_message.msg_flags;
+    if (Dynarmic_mem_1write(guest_message_address, sizeof(updated),
+            reinterpret_cast<char *>(&updated)) != 0) {
+        return static_cast<ssize_t>(
+            return_with_carry_direct(EFAULT, true));
+    }
+    return result;
+}
+
 int guest_select(int NR, int descriptor_count,
         u32 guest_read_set, u32 guest_write_set,
         u32 guest_except_set, u32 guest_timeout) {
