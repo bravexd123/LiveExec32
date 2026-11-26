@@ -3,6 +3,10 @@
 
 #import "LC32CFNetworkBridge.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+
 uint32_t LC32CFNetworkDispatch(LC32CFNetworkOpcode opcode,
                                const uint64_t *slots,
                                uint32_t slotCount);
@@ -441,6 +445,56 @@ CFDataRef CFHostGetReachability(CFHostRef host,
         LC32CFNetworkOpHostGetReachability,
         LC32_CFNETWORK_HOST(host),
         LC32_CFNETWORK_U32((uintptr_t)hasBeenResolved)) : NULL;
+}
+
+static CFStringRef LC32CFHostCopyConnectName(CFHostRef host) {
+    Boolean resolved = false;
+    CFArrayRef names = CFHostGetNames(host, &resolved);
+    if(names && CFArrayGetCount(names) > 0) {
+        CFStringRef name = (CFStringRef)CFArrayGetValueAtIndex(names, 0);
+        if(name) return CFStringCreateCopy(kCFAllocatorDefault, name);
+    }
+
+    CFArrayRef addresses = CFHostGetAddressing(host, &resolved);
+    CFIndex count = addresses ? CFArrayGetCount(addresses) : 0;
+    for(CFIndex i = 0; i < count; i++) {
+        CFDataRef data = (CFDataRef)CFArrayGetValueAtIndex(addresses, i);
+        if(!data) continue;
+        const struct sockaddr *sa =
+            (const struct sockaddr *)CFDataGetBytePtr(data);
+        CFIndex length = CFDataGetLength(data);
+        char buffer[INET6_ADDRSTRLEN] = {0};
+        const char *text = NULL;
+        if(sa->sa_family == AF_INET &&
+           length >= (CFIndex)sizeof(struct sockaddr_in)) {
+            text = inet_ntop(AF_INET,
+                &((const struct sockaddr_in *)sa)->sin_addr,
+                buffer, sizeof(buffer));
+        } else if(sa->sa_family == AF_INET6 &&
+                  length >= (CFIndex)sizeof(struct sockaddr_in6)) {
+            text = inet_ntop(AF_INET6,
+                &((const struct sockaddr_in6 *)sa)->sin6_addr,
+                buffer, sizeof(buffer));
+        }
+        if(text) return CFStringCreateWithCString(kCFAllocatorDefault,
+            text, kCFStringEncodingASCII);
+    }
+    return NULL;
+}
+
+void CFStreamCreatePairWithSocketToCFHost(CFAllocatorRef allocator,
+                                          CFHostRef host, SInt32 port,
+                                          CFReadStreamRef *readStream,
+                                          CFWriteStreamRef *writeStream) {
+    if(readStream) *readStream = NULL;
+    if(writeStream) *writeStream = NULL;
+    if(!host || (!readStream && !writeStream)) return;
+
+    CFStringRef name = LC32CFHostCopyConnectName(host);
+    if(!name) return;
+    CFStreamCreatePairWithSocketToHost(allocator, name, (UInt32)port,
+                                       readStream, writeStream);
+    CFRelease(name);
 }
 
 CFTypeID CFNetServiceGetTypeID(void) {
