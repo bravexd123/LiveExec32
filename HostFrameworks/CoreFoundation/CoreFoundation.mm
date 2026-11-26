@@ -10,6 +10,8 @@
 #include <cstring>
 #include <new>
 #include <vector>
+#include <pthread.h>
+#include <cstdio>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -779,6 +781,9 @@ void WriteStreamClientCallback(CFWriteStreamRef,
                                void *rawContext) {
     WriteStreamClientContext *context =
         static_cast<WriteStreamClientContext *>(rawContext);
+    fprintf(stderr, "LC32NET: write callback event=%lu ctx=%p cb=0x%08x "
+        "thread_main=%d\n", (unsigned long)eventType, rawContext,
+        context ? context->guestCallback : 0, pthread_main_np());
     if(!context || !context->guestCallback) return;
     const u32 arguments[] = {
         context->guestStream,
@@ -3683,12 +3688,19 @@ u32 LC32_CoreFoundation_Dispatch(u32 opcodeValue, u32 guestCall, u32) {
             if(!RequireSlots(call, 1)) return 0;
             CFWriteStreamRef stream =
                 SlotHostObject<CFWriteStreamRef>(call, 0);
-            return stream && CFWriteStreamOpen(stream);
+            const Boolean opened = stream && CFWriteStreamOpen(stream);
+            fprintf(stderr, "LC32NET: CFWriteStreamOpen stream=%p -> %d "
+                "status=%ld\n", stream, opened,
+                stream ? (long)CFWriteStreamGetStatus(stream) : -1L);
+            return opened;
         }
         case LC32CoreFoundationOpWriteStreamClose: {
             if(!RequireSlots(call, 1)) return 0;
             CFWriteStreamRef stream =
                 SlotHostObject<CFWriteStreamRef>(call, 0);
+            fprintf(stderr, "LC32NET: CFWriteStreamClose stream=%p "
+                "status=%ld\n", stream,
+                stream ? (long)CFWriteStreamGetStatus(stream) : -1L);
             if(!stream) return 0;
             CFWriteStreamClose(stream);
             return 1;
@@ -3697,8 +3709,12 @@ u32 LC32_CoreFoundation_Dispatch(u32 opcodeValue, u32 guestCall, u32) {
             if(!RequireSlots(call, 1)) return 0;
             CFWriteStreamRef stream =
                 SlotHostObject<CFWriteStreamRef>(call, 0);
+            const long status = stream
+                ? (long)CFWriteStreamGetStatus(stream) : -1L;
+            fprintf(stderr, "LC32NET: CFWriteStreamGetStatus stream=%p "
+                "-> %ld\n", stream, status);
             return stream ? static_cast<u32>(static_cast<int32_t>(
-                CFWriteStreamGetStatus(stream))) : 0;
+                status)) : 0;
         }
         case LC32CoreFoundationOpWriteStreamCanAcceptBytes: {
             if(!RequireSlots(call, 1)) return 0;
@@ -3730,6 +3746,13 @@ u32 LC32_CoreFoundation_Dispatch(u32 opcodeValue, u32 guestCall, u32) {
             const CFIndex result = CFWriteStreamWrite(
                 stream, buffer.empty() ? nullptr : buffer.data(),
                 static_cast<CFIndex>(bufferLength));
+            fprintf(stderr, "LC32NET: CFWriteStreamWrite stream=%p len=%d "
+                "-> %ld\n", stream, bufferLength, (long)result);
+            if(result < 0) {
+                CFStreamError err = CFWriteStreamGetError(stream);
+                fprintf(stderr, "LC32NET:   write error domain=%ld "
+                    "code=%d\n", (long)err.domain, (int)err.error);
+            }
             if(result < 0 || result > bufferLength || result > INT32_MAX) {
                 return static_cast<u32>(-1);
             }
@@ -3769,6 +3792,9 @@ u32 LC32_CoreFoundation_Dispatch(u32 opcodeValue, u32 guestCall, u32) {
                 SlotHostObject<CFRunLoopRef>(call, 1);
             CFRunLoopMode mode =
                 SlotHostObject<CFRunLoopMode>(call, 2);
+            fprintf(stderr, "LC32NET: CFWriteStreamSchedule stream=%p "
+                "runLoop=%p main=%p current=%p\n", stream, runLoop,
+                CFRunLoopGetMain(), CFRunLoopGetCurrent());
             if(!stream || !runLoop || !mode) return 0;
             CFWriteStreamScheduleWithRunLoop(stream, runLoop, mode);
             return 1;
@@ -3858,6 +3884,9 @@ u32 LC32_CoreFoundation_Dispatch(u32 opcodeValue, u32 guestCall, u32) {
             const Boolean result = CFWriteStreamSetClient(
                 stream, events, WriteStreamClientCallback,
                 &nativeContext);
+            fprintf(stderr, "LC32NET: CFWriteStreamSetClient stream=%p "
+                "events=0x%lx cb=0x%08x -> %d\n", stream,
+                (unsigned long)events, guestCallback, result);
             ReleaseWriteStreamClientContext(context);
             return result;
         }
@@ -3916,6 +3945,14 @@ u32 LC32_CoreFoundation_Dispatch(u32 opcodeValue, u32 guestCall, u32) {
                 kCFAllocatorDefault, host, port,
                 guestReadStream ? &readStream : nullptr,
                 guestWriteStream ? &writeStream : nullptr);
+            {
+                char hostText[128] = {0};
+                CFStringGetCString(host, hostText, sizeof(hostText),
+                    kCFStringEncodingUTF8);
+                fprintf(stderr, "LC32NET: PairWithSocketToHost host=%s "
+                    "port=%u read=%p write=%p\n", hostText,
+                    (unsigned)port, readStream, writeStream);
+            }
 
             if(!WriteGuestCreatedObject(guestReadStream, readStream)) {
                 if(writeStream) CFRelease(writeStream);
