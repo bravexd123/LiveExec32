@@ -993,7 +993,7 @@ public:
             NR == SYS_recvmsg || NR == SYS_recvmsg_nocancel ||
             NR == SYS_shutdown || NR == SYS_poll ||
             NR == SYS_poll_nocancel || NR == SYS_getpeername ||
-            NR == SYS_getsockname;
+            NR == SYS_getsockname || NR == SYS_ioctl;
         const u32 lc32NetArgs[5] = {
             cpu->Regs()[0], cpu->Regs()[1], cpu->Regs()[2],
             cpu->Regs()[3], cpu->Regs()[4],

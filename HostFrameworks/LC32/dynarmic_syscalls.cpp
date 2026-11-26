@@ -4677,6 +4677,14 @@ int guest_ioctl(int fildes, u32 request, u32 guest_r2) {
             return guest_inout_ioctl<struct ifreq>(fildes, request, guest_r2);
         case LC32_CTLIOCGINFO:
             return guest_inout_ioctl<LC32CtlInfo>(fildes, request, guest_r2);
+        case FIONBIO:
+        case FIOASYNC:
+        case FIONREAD:
+        case FIONWRITE:
+        case FIONSPACE:
+            /* Socket ioctls whose argument is a single int; the layout is
+             * identical for armv7 guests and the arm64 host. */
+            return guest_inout_ioctl<int>(fildes, request, guest_r2);
         case FIODTYPE: {
             int host_r2;
             int result = syscallRetCarry(SYS_ioctl, fildes, request, &host_r2, 0,0,0,0);
