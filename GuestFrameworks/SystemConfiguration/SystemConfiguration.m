@@ -2,7 +2,6 @@
 #import <SystemConfiguration/CaptiveNetwork.h>
 #import <SystemConfiguration/SystemConfiguration.h>
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dispatch/dispatch.h>
@@ -240,8 +239,6 @@ SCNetworkReachabilityRef SCNetworkReachabilityCreateWithAddressPair(
 SCNetworkReachabilityRef SCNetworkReachabilityCreateWithName(
         CFAllocatorRef allocator, const char *nodeName) {
     (void)allocator;
-    fprintf(stderr, "LC32NET: SCNetworkReachabilityCreateWithName %s\n",
-        nodeName ? nodeName : "NULL");
     if(!nodeName) return NULL;
     return (SCNetworkReachabilityRef)
         [[LC32SCNetworkReachability alloc] init];
@@ -256,8 +253,6 @@ CFTypeID SCNetworkReachabilityGetTypeID(void) {
 Boolean SCNetworkReachabilityGetFlags(
         SCNetworkReachabilityRef target,
         SCNetworkReachabilityFlags *flags) {
-    fprintf(stderr, "LC32NET: SCNetworkReachabilityGetFlags target=%p\n",
-        (void *)target);
     if(!target || !flags) return invalidArgument();
     *flags = LC32ReachableFlags;
     return true;

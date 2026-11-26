@@ -981,38 +981,6 @@ public:
         printf("CallSVC(NR=%d)\n", NR);
 #endif
 
-        const int lc32NetNR = NR;
-        const bool lc32NetTrace =
-            NR == SYS_socket || NR == SYS_connect ||
-            NR == SYS_connect_nocancel || NR == SYS_select ||
-            NR == SYS_select_nocancel || NR == SYS_bind ||
-            NR == SYS_setsockopt || NR == SYS_getsockopt ||
-            NR == SYS_sendto || NR == SYS_sendto_nocancel ||
-            NR == SYS_recvfrom || NR == SYS_recvfrom_nocancel ||
-            NR == SYS_sendmsg || NR == SYS_sendmsg_nocancel ||
-            NR == SYS_recvmsg || NR == SYS_recvmsg_nocancel ||
-            NR == SYS_shutdown || NR == SYS_poll ||
-            NR == SYS_poll_nocancel || NR == SYS_getpeername ||
-            NR == SYS_getsockname || NR == SYS_ioctl;
-        const u32 lc32NetArgs[5] = {
-            cpu->Regs()[0], cpu->Regs()[1], cpu->Regs()[2],
-            cpu->Regs()[3], cpu->Regs()[4],
-        };
-        if (lc32NetTrace && (NR == SYS_connect ||
-                NR == SYS_connect_nocancel || NR == SYS_bind)) {
-            unsigned char sa[32] = {0};
-            const u32 saLen = lc32NetArgs[2] > sizeof(sa)
-                ? (u32)sizeof(sa) : lc32NetArgs[2];
-            if (lc32NetArgs[1] && saLen &&
-                    Dynarmic_mem_1read(lc32NetArgs[1], saLen,
-                        reinterpret_cast<char *>(sa)) == 0) {
-                fprintf(stderr, "LC32NET: sys %d fd=%u family=%u "
-                    "port=%u addr=%u.%u.%u.%u len=%u\n", NR,
-                    lc32NetArgs[0], sa[1], (sa[2] << 8) | sa[3],
-                    sa[4], sa[5], sa[6], sa[7], lc32NetArgs[2]);
-            }
-        }
-
         cpsr->setCarry(false);
 /*
 BE CAREFUL WHEN MOVING SYSCALL. Checklist:
@@ -2555,29 +2523,6 @@ BE CAREFUL WHEN MOVING SYSCALL. Checklist:
 #if TRACE_SVC
         printf("CallSVC returned 0x%08x, carry %d\n", cpu->Regs()[0], cpsr->hasCarry());
 #endif
-        if (lc32NetTrace) {
-            fprintf(stderr, "LC32NET: sys %d (%u, 0x%x, %u, 0x%x, 0x%x) "
-                "-> %d%s\n", lc32NetNR, lc32NetArgs[0], lc32NetArgs[1],
-                lc32NetArgs[2], lc32NetArgs[3], lc32NetArgs[4],
-                (int)cpu->Regs()[0],
-                cpsr->hasCarry() ? " (errno)" : "");
-            const bool isSend = lc32NetNR == SYS_sendto ||
-                lc32NetNR == SYS_sendto_nocancel;
-            const bool isRecv = lc32NetNR == SYS_recvfrom ||
-                lc32NetNR == SYS_recvfrom_nocancel;
-            if ((isSend || isRecv) && !cpsr->hasCarry() &&
-                    (int)cpu->Regs()[0] > 0 && lc32NetArgs[1]) {
-                char data[121] = {0};
-                const u32 count = (u32)cpu->Regs()[0] > 120
-                    ? 120 : (u32)cpu->Regs()[0];
-                if (Dynarmic_mem_1read(lc32NetArgs[1], count, data) == 0) {
-                    for (u32 i = 0; i < count; i++) {
-                        if (data[i] < 32 || data[i] > 126) data[i] = '.';
-                    }
-                    fprintf(stderr, "LC32NET:   data \"%s\"\n", data);
-                }
-            }
-        }
         /*
          * There is no host timer preempting the one shared JIT.  Rotate
          * explicit guest pthreads at completed Darwin syscall boundaries.

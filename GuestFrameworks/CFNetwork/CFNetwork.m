@@ -4,7 +4,6 @@
 #import "LC32CFNetworkBridge.h"
 
 #include <arpa/inet.h>
-#include <stdio.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -392,10 +391,6 @@ CFTypeID CFHostGetTypeID(void) {
 CFHostRef CFHostCreateWithName(CFAllocatorRef allocator,
                                CFStringRef hostname) {
     (void)allocator;
-    char hostText[128] = "NULL";
-    if(hostname) CFStringGetCString(hostname, hostText, sizeof(hostText),
-                                    kCFStringEncodingUTF8);
-    fprintf(stderr, "LC32NET: CFHostCreateWithName %s\n", hostText);
     return hostname ? (CFHostRef)LC32_CFNETWORK_CALL(
         LC32CFNetworkOpHostCreateWithName,
         LC32_CFNETWORK_HOST(hostname)) : NULL;
@@ -496,18 +491,9 @@ void CFStreamCreatePairWithSocketToCFHost(CFAllocatorRef allocator,
     if(!host || (!readStream && !writeStream)) return;
 
     CFStringRef name = LC32CFHostCopyConnectName(host);
-    char nameText[128] = "NULL";
-    if(name) CFStringGetCString(name, nameText, sizeof(nameText),
-                                kCFStringEncodingUTF8);
-    fprintf(stderr, "LC32NET: CFStreamCreatePairWithSocketToCFHost "
-        "port=%d name=%s read=%p write=%p\n", (int)port, nameText,
-        (void *)readStream, (void *)writeStream);
     if(!name) return;
     CFStreamCreatePairWithSocketToHost(allocator, name, (UInt32)port,
                                        readStream, writeStream);
-    fprintf(stderr, "LC32NET:   pair created read=%p write=%p\n",
-        readStream ? (void *)*readStream : NULL,
-        writeStream ? (void *)*writeStream : NULL);
     CFRelease(name);
 }
 
