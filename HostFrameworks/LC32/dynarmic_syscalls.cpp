@@ -4680,8 +4680,8 @@ int guest_ioctl(int fildes, u32 request, u32 guest_r2) {
         case FIONBIO:
         case FIOASYNC:
         case FIONREAD:
-        case FIONWRITE:
-        case FIONSPACE:
+        case 0x40046677: // FIONWRITE (not exported by the iOS SDK)
+        case 0x40046676: // FIONSPACE (not exported by the iOS SDK)
             /* Socket ioctls whose argument is a single int; the layout is
              * identical for armv7 guests and the arm64 host. */
             return guest_inout_ioctl<int>(fildes, request, guest_r2);
